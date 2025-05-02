@@ -5,7 +5,6 @@
 package beehive
 
 import (
-	"log/slog"
 	"sync"
 )
 
@@ -49,12 +48,11 @@ func (w *BufferedCollector[T]) Run(in <-chan *T, errc chan error, wg *sync.WaitG
 	buffer := []*T{}
 
 	for i := range in {
-		if len(buffer) > w.BufferSize {
+		if len(buffer) >= w.BufferSize {
 			err := w.Collect(buffer)
 			if err != nil {
 				errc <- err
 			}
-			slog.Default().Info("Wrote buffer to target")
 			buffer = []*T{}
 		}
 
@@ -67,6 +65,5 @@ func (w *BufferedCollector[T]) Run(in <-chan *T, errc chan error, wg *sync.WaitG
 		if err != nil {
 			errc <- err
 		}
-		slog.Default().Info("Wrote remaining buffer to target")
 	}
 }

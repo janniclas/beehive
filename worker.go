@@ -9,7 +9,7 @@ import "sync"
 // The Worker processes the elements that are provided
 // to it by the Fan-Out step of the dispatcher.
 type Worker[T, E any] struct {
-	Do func(*T) (*E, error) // function to be executed by the worker
+	Work func(*T) (*E, error) // function to be executed by the worker
 }
 
 // starts the worker. It accepts inputs until the in channel is closed.
@@ -17,7 +17,7 @@ type Worker[T, E any] struct {
 func (w *Worker[T, E]) Run(in <-chan *T, out chan *E, errc chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for i := range in {
-		res, err := w.Do(i)
+		res, err := w.Work(i)
 		if err != nil {
 			errc <- err
 			continue

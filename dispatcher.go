@@ -19,7 +19,7 @@ import (
 // It is responsible for distributing tasks to workers (Fan-Out) and
 // collecting results (Fan-In).
 type Dispatcher[T, E any] struct {
-	NoWorker  int
+	NumWorker int
 	Worker    Worker[T, E]
 	Producer  iter.Seq[T]
 	Collector BufferedCollector[E]
@@ -30,7 +30,7 @@ type Dispatcher[T, E any] struct {
 }
 
 type DispatcherConfig struct {
-	NoWorker  *int           // optional, defaults to runtime.NumCPU()
+	NumWorker *int           // optional, defaults to runtime.NumCPU()
 	RateLimit *time.Duration // optional, defaults to 0 meaning no rate limit is applied
 	Logger    *slog.Logger   // optional, defaults to slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -57,17 +57,17 @@ func NewDispatcher[T, E any](Worker Worker[T, E],
 	}
 
 	// set number of workers
-	var noWorker int
-	if config.NoWorker != nil {
-		if *config.NoWorker <= 0 {
-			noWorker = runtime.NumCPU()
+	var numWorker int
+	if config.NumWorker != nil {
+		if *config.NumWorker <= 0 {
+			numWorker = runtime.NumCPU()
 		} else {
-			noWorker = *config.NoWorker
+			numWorker = *config.NumWorker
 		}
 	} else {
-		noWorker = runtime.NumCPU()
+		numWorker = runtime.NumCPU()
 	}
-	d.NoWorker = noWorker
+	d.NumWorker = numWorker
 
 	if config.RateLimit != nil && *config.RateLimit > 0 {
 		d.rateLimit = *config.RateLimit
@@ -80,7 +80,7 @@ func NewDispatcher[T, E any](Worker Worker[T, E],
 	if channelBuffer == math.MaxInt {
 		channelBuffer = 100 // limit channel buffer size
 	}
-	d.channelBuffer = channelBuffer / noWorker
+	d.channelBuffer = channelBuffer / numWorker
 
 	return &d
 }
@@ -104,11 +104,11 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	var collectWg sync.WaitGroup
 
 	// setup workers
-	for range d.NoWorker {
+	for range d.NumWorker {
 		processWg.Add(1)
 		go d.Worker.Run(in, out, errc, &processWg)
 	}
-	d.logger.Debug("Started workers", "number workers", d.NoWorker)
+	d.logger.Debug("Started workers", "number workers", d.NumWorker)
 
 	// setup error logging
 	go func() {
