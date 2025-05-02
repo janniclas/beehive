@@ -21,7 +21,7 @@ worker := beehive.Worker[int, string] {
 	Work: func(i *int) (*string, error) {
 		s := fmt.Sprintf("processed:%d", *i)
 		return &s, nil
-	}
+	},
 }
 
 buffer := 1
@@ -35,8 +35,8 @@ collect := func(s []*string) error {
 collector := beehive.NewBufferedCollector[string](
 	collect,
 	beehive.BufferedCollectorConfig{
-		BufferSize: &buffer
-	}
+		BufferSize: &buffer,
+	},
 )
 
 producer := []int{1, 2, 3, 4}
@@ -51,7 +51,7 @@ dispatcher := beehive.NewDispatcher(
 	collector,
 	beehive.DispatcherConfig{
 		NumWorker: &numWorker,
-	}
+	},
 )
 
 // starts the processing and blocks until producer
