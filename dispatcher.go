@@ -125,6 +125,7 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	if d.rateLimit > 0 {
 		throttle := time.Tick(d.rateLimit)
 		for e := range d.Producer {
+			// blocks until we recive a new tick
 			<-throttle
 			in <- &e
 		}

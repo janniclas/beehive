@@ -58,3 +58,13 @@ dispatcher := beehive.NewDispatcher(
 dispatcher.Dispatch()
 ```
 For more examples see the project's tests or the `examples`.
+
+### Configuration
+beehive has been developed as a general purpose solution with very few configuration options.
+
+#### Rate limit
+The rate limit is applied in the dispatcher before forwarding the tasks to the workers. A rate limit of, e.g., 5 seconds ensures that only every 5 seconds a task is worked on.
+A rate limit is often used to limit the amount of requests to an external API.
+
+#### Number of workers
+Defines how many workers are started from the dispatcher. Each worker runs in its own goroutine. The optimal number of workers highly depends on your use case. It defaults to the number of CPU cores.
