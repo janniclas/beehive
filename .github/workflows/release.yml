@@ -1,0 +1,33 @@
+name: release
+# Example: Triggered when you push a git tag (e.g., git tag v1.0.0; git push --tags)
+# This is simpler than auto-generating tags from commits for a first library.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+" # Trigger on tags like v1.0.0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to get commit history for release notes
+
+      - name: Get tag name
+        id: get_tag
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.TAG }}
+          name: Release ${{ steps.get_tag.outputs.TAG }}
+          body_preamble: |
+            ## What's Changed
+          generate_release_notes: true # Automatically generate release notes from commits
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided automatically
+
+      - name: Publish release
+        run: GOPROXY=proxy.golang.org go list -m github.com/janniclas/beehive@${{ steps.get_tag.outputs.TAG }}
