@@ -1,8 +1,7 @@
 [![License](https://img.shields.io/badge/License-MIT%20-yellow.svg)](https://github.com/janniclas/beehive/blob/main/LICENSE)
 
-# Beehive
 
-<img src="https://github.com/janniclas/beehive/raw/main/img/logo/png/goopher-beehive_transparent.png" width="200">
+![beehive logo](img/logo/png/gopher-beehive-txt_transparent.png)
 
 ----
 ## About
