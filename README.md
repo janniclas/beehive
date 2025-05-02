@@ -3,7 +3,6 @@
 
 ![beehive logo](img/logo/png/gopher-beehive-txt_transparent.png)
 
-----
 ## About
 Beehive is a channel-based implementation of the Fan-Out and Fan-In pattern. It supports functionality to spawn a customizable number of generic worker goroutines. The worker must be configured with a custom function to process the incoming data.
 Every worker is linked to a buffered collector that processes the incoming data.
