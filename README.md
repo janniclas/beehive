@@ -1,4 +1,4 @@
-[![License](https://img.shields.io/badge/License-MIT%20-yellow.svg)](https://github.com/janniclas/beehive/blob/main/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/janniclas/beehive)](https://goreportcard.com/report/github.com/janniclas/beehive)[![License](https://img.shields.io/badge/License-MIT%20-yellow.svg)](https://github.com/janniclas/beehive/blob/main/LICENSE)
 
 
 ![beehive logo](img/logo/png/gopher-beehive-txt_transparent.png)
