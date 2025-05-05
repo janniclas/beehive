@@ -113,7 +113,7 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	// setup error logging
 	go func() {
 		for err := range errc {
-			d.logger.Error("an error occured in dispatcher", "error", err)
+			d.logger.Error("an error occurred in dispatcher", "error", err)
 		}
 	}()
 
