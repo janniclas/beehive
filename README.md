@@ -54,7 +54,7 @@ dispatcher := beehive.NewDispatcher(
 
 // starts the processing and blocks until producer
 // is finished and all workers finished processing
-dispatcher.Dispatch()
+errs := dispatcher.Dispatch()
 ```
 For more examples see the project's tests or the `examples`.
 
