@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,45 +53,6 @@ type TestCollector struct {
 	mu               sync.Mutex
 	collectCallCount int32
 }
-
-// func (tc *TestCollector) Run(in <-chan *int, errc chan error, wg *sync.WaitGroup) {
-// 	defer wg.Done()
-// 	cfg := BufferedCollectorConfig{} // Use default buffer size 1 for simplicity unless overridden
-// 	bc := NewBufferedCollector(func(batch []*int) error {
-// 		atomic.AddInt32(&tc.collectCallCount, 1)
-// 		tc.mu.Lock()
-// 		defer tc.mu.Unlock()
-// 		if tc.CollectFunc != nil {
-// 			err := tc.CollectFunc(batch)
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
-// 		// Make copies to avoid data races if the input items are mutable or reused
-// 		for _, item := range batch {
-// 			copiedItem := *item
-// 			tc.CollectedItems = append(tc.CollectedItems, &copiedItem)
-// 		}
-// 		return nil
-// 	}, cfg)
-
-// 	// Manually run the collection logic from BufferedCollector.Run
-// 	// as TestCollector itself doesn't embed BufferedCollector
-// 	// This is a simplified mock, for full BufferedCollector testing, it would be separate.
-// 	// For testing the Dispatcher, we mainly care about the interaction.
-
-// 	// This mock collector will collect all items passed to its Run method
-// 	// and then call the tc.CollectFunc once with all items.
-// 	// This is a simplification for testing. For fine-grained buffer testing,
-// 	// the TestCollector would need its own BufferSize and logic.
-// 	// Let's adjust to use the underlying BufferedCollector's Run for more accurate testing.
-
-// 	// The Dispatcher expects a BufferedCollector, so let's use it directly.
-// 	// This means TestCollector might not be needed, or it needs to wrap/provide a BufferedCollector.
-// 	// For simplicity in setting up tests, we can create a BufferedCollector directly in tests.
-// 	// The provided TestCollector above would be how one might mock the *interface* if BufferedCollector was an interface.
-// 	// Given BufferedCollector is a struct, we'll create instances of it in tests.
-// }
 
 func newDefaultTestBufferedCollector(collectFn func(items []*int) error, bufferSize int) *BufferedCollector[int] {
 	bs := bufferSize
@@ -308,7 +270,7 @@ func TestDispatch_Success_NoRateLimit(t *testing.T) {
 	mu.Unlock()
 
 	expectedSum := 0
-	for i := 0; i < numItems; i++ {
+	for i := range numItems {
 		expectedSum += i * 2
 	}
 	if sum != expectedSum {
@@ -441,13 +403,7 @@ func TestDispatch_CollectorError(t *testing.T) {
 	// Collector might be called multiple times if some items are processed before error
 	// The current BufferedCollector stops on first error and doesn't process further batches.
 	// The dispatcher will collect all errors from the errc channel.
-	found := false
-	for _, err := range *errs {
-		if err == collectorErr {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(*errs, collectorErr)
 	if !found {
 		t.Errorf("Expected collector error '%v' in %v", collectorErr, *errs)
 	}
