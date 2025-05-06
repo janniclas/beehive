@@ -45,7 +45,7 @@ func NewBufferedCollector[T any](
 func (w *BufferedCollector[T]) Run(in <-chan *T, errc chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	buffer := []*T{}
+	buffer := make([]*T, 0, w.BufferSize)
 
 	for i := range in {
 		if len(buffer) >= w.BufferSize {
@@ -53,7 +53,8 @@ func (w *BufferedCollector[T]) Run(in <-chan *T, errc chan error, wg *sync.WaitG
 			if err != nil {
 				errc <- err
 			}
-			buffer = []*T{}
+			// Reset length to 0, keeping the allocated capacity
+			buffer = buffer[:0]
 		}
 
 		buffer = append(buffer, i)
