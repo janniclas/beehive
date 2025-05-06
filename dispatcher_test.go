@@ -48,10 +48,8 @@ func (tw *TestWorker) Run(in <-chan *int, out chan *int, errc chan error, wg *sy
 
 // TestCollector is a simple collector for testing purposes.
 type TestCollector struct {
-	CollectedItems   []*int
-	CollectFunc      func(items []*int) error
-	mu               sync.Mutex
-	collectCallCount int32
+	CollectedItems []*int
+	CollectFunc    func(items []*int) error
 }
 
 func newDefaultTestBufferedCollector(collectFn func(items []*int) error, bufferSize int) *BufferedCollector[int] {
@@ -182,11 +180,6 @@ func TestNewDispatcher_ChannelBufferCalculation(t *testing.T) {
 				collector.BufferSize = tt.collectorBufferSize
 			}
 
-			nw := tt.numWorker
-			if nw == 0 { // test runtime.NumCPU() path
-				nw = runtime.NumCPU()
-			}
-
 			config := DispatcherConfig{}
 			if tt.numWorker > 0 { // Allow testing default NumWorker if tt.numWorker is 0 or not specified for this path
 				config.NumWorker = &tt.numWorker
@@ -203,13 +196,12 @@ func TestNewDispatcher_ChannelBufferCalculation(t *testing.T) {
 				actualNumWorker = *config.NumWorker
 			}
 
-			expectedBuf := tt.expectedChannelBuffer
 			// Recalculate expected based on actual logic if MaxInt involved
 			cbs := collector.BufferSize
 			if cbs == math.MaxInt {
 				cbs = 100
 			}
-			expectedBuf = cbs / actualNumWorker
+			expectedBuf := cbs / actualNumWorker
 			if cbs > 0 && actualNumWorker > 0 && cbs < actualNumWorker { // handle integer division for 0
 				expectedBuf = 0
 			}
@@ -481,6 +473,7 @@ func TestDispatch_CollectorBuffering(t *testing.T) {
 					// The logic in BufferedCollector.Run calls Collect if len(buffer) > 0
 					// If producer is empty, out channel closes, buffer is empty, Collect is not called.
 					// So, for tt.numItems == 0, expectedCollectCalls should be 0.
+					tt.expectedCollectCalls = 0
 				}
 				collectedItems = append(collectedItems, items...)
 				return nil
