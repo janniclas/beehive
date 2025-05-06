@@ -93,7 +93,7 @@ func NewDispatcher[T, E any](Worker Worker[T, E],
 // sequence ends the dispatching.
 //
 //	This is a blocking function!
-func (d *Dispatcher[T, E]) Dispatch() {
+func (d *Dispatcher[T, E]) Dispatch() *[]error {
 
 	in := make(chan *T)
 	out := make(chan *E, d.channelBuffer)
@@ -102,6 +102,7 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	// used to signal when worker and collector are done
 	var processWg sync.WaitGroup
 	var collectWg sync.WaitGroup
+	var errorWg sync.WaitGroup
 
 	// setup workers
 	for range d.NumWorker {
@@ -110,10 +111,14 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	}
 	d.logger.Debug("Started workers", "number workers", d.NumWorker)
 
+	errs := []error{}
 	// setup error logging
+	errorWg.Add(1)
 	go func() {
+		defer errorWg.Done()
 		for err := range errc {
 			d.logger.Error("an error occurred in dispatcher", "error", err)
+			errs = append(errs, err)
 		}
 	}()
 
@@ -149,4 +154,12 @@ func (d *Dispatcher[T, E]) Dispatch() {
 	collectWg.Wait()
 	close(errc)
 	d.logger.Debug("Collector finished")
+
+	errorWg.Wait()
+
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return &errs
 }
