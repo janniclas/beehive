@@ -308,3 +308,118 @@ func TestCollector_ErrorOnFinalFlush(t *testing.T) {
 	}
 	compareIntPointerSlices(t, itemsToFlush, args)
 }
+
+// TestCollector_HandlesNilPointers tests that the collector can handle nil
+// pointers within the input stream and includes them correctly in the batches
+// passed to the Collect function.
+func TestCollector_HandlesNilPointers(t *testing.T) {
+	t.Parallel() // Mark test as safe for parallel execution
+
+	mockStats := &mockCollectStats{} // mockCollectStats is already set up to handle nil pointers
+
+	// Items including nil pointers at various positions
+	// We use *int for the example, but the generic T allows any pointer type.
+	itemsWithNil := []*int{intPtr(1), nil, intPtr(3), intPtr(4), nil, nil, intPtr(7)} // intPtr is a helper function to create *int
+	bufferSize := 3                                                                   // Use a buffer size that will create multiple batches and a remainder
+
+	// Helper to create a *int from an int value
+	intPtr := func(v int) *int { return &v }
+
+	// Transform itemsWithNil for the runCollectorTest helper
+	// The helper expects []int and converts them to []*int.
+	// We need to simulate the mixed input of int pointers and nil directly.
+	// We will need a slightly modified run function or adjust the input sending.
+	// Let's adjust the input sending part of a new test function.
+
+	in := make(chan *int)
+	errc := make(chan error, 10) // Buffer potential errors
+	var wg sync.WaitGroup
+
+	collector := BufferedCollector[int]{
+		Collect:    mockStats.Collect,
+		BufferSize: bufferSize,
+	}
+
+	wg.Add(1)
+	go collector.Run(in, errc, &wg)
+
+	// Send items including nil pointers
+	go func() {
+		for _, item := range itemsWithNil {
+			in <- item
+		}
+		close(in) // Signal end of input
+	}()
+
+	wg.Wait()
+
+	close(errc) // Close error channel after WaitGroup is done
+	errs := collectErrors(errc)
+
+	// --- Assertions ---
+
+	// 1. Check that no unexpected errors occurred.
+	if len(errs) > 0 {
+		t.Errorf("Unexpected errors received: %v", errs)
+	}
+
+	// 2. Check the number of Collect calls.
+	// itemsWithNil has 7 elements, bufferSize is 3.
+	// Batch 1: [1, nil, 3] (call 1)
+	// Batch 2: [4, nil, nil] (call 2)
+	// Remainder: [7] (call 3 on flush)
+	expectedCalls := 3
+	if mockStats.CallCount() != expectedCalls {
+		t.Errorf("Expected Collect to be called %d times, got %d", expectedCalls, mockStats.CallCount())
+	}
+
+	// 3. Check the arguments passed in each Collect call.
+	// Helper to compare []*int including nil
+	compareIntPointerSlicesWithNil := func(t *testing.T, expected []*int, actual []*int) {
+		t.Helper()
+		if len(expected) != len(actual) {
+			t.Errorf("Expected slice length %d, got %d", len(expected), len(actual))
+			return
+		}
+		for i := range expected {
+			expectedNil := expected[i] == nil
+			actualNil := actual[i] == nil
+
+			if expectedNil != actualNil {
+				t.Errorf("Mismatch at index %d: Expected nil: %t, Got nil: %t", i, expectedNil, actualNil)
+				return // Stop on first mismatch
+			}
+
+			if !expectedNil { // If not nil, compare values
+				if *expected[i] != *actual[i] {
+					t.Errorf("Value mismatch at index %d: Expected %d, Got %d", i, *expected[i], *actual[i])
+					return // Stop on first mismatch
+				}
+			}
+		}
+	}
+
+	// Call 0
+	args0, err := mockStats.GetCallArgs(0)
+	if err != nil {
+		t.Fatalf("Error getting args for call 0: %v", err)
+	}
+	compareIntPointerSlicesWithNil(t, []*int{intPtr(1), nil, intPtr(3)}, args0)
+
+	// Call 1
+	args1, err := mockStats.GetCallArgs(1)
+	if err != nil {
+		t.Fatalf("Error getting args for call 1: %v", err)
+	}
+	compareIntPointerSlicesWithNil(t, []*int{intPtr(4), nil, nil}, args1)
+
+	// Call 2 (final flush)
+	args2, err := mockStats.GetCallArgs(2)
+	if err != nil {
+		t.Fatalf("Error getting args for call 2: %v", err)
+	}
+	compareIntPointerSlicesWithNil(t, []*int{intPtr(7)}, args2)
+}
+
+// Helper function needed for the TestCollector_HandlesNilPointers test
+func intPtr(v int) *int { return &v }
