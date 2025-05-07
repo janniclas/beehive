@@ -26,46 +26,13 @@ func newIntProducer(count int) iter.Seq[int] {
 	}
 }
 
-// TestWorker is a simple worker for testing purposes.
-// It processes an int and returns an int.
-type TestWorker struct {
-	WorkFunc func(item *int) (*int, error)
-}
-
-func (tw *TestWorker) Run(in <-chan *int, out chan *int, errc chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for item := range in {
-		res, err := tw.WorkFunc(item)
-		if err != nil {
-			errc <- err
-			continue
-		}
-		if res != nil { // Allow worker to optionally not send a result
-			out <- res
-		}
-	}
-}
-
-// TestCollector is a simple collector for testing purposes.
-type TestCollector struct {
-	CollectedItems []*int
-	CollectFunc    func(items []*int) error
-}
-
-func newDefaultTestBufferedCollector(collectFn func(items []*int) error, bufferSize int) *BufferedCollector[int] {
-	bs := bufferSize
-	if bs <= 0 {
-		bs = 1
-	}
-	return NewBufferedCollector(collectFn, BufferedCollectorConfig{BufferSize: &bs})
-}
-
 // --- Tests for NewDispatcher ---
 
 func TestNewDispatcher_Defaults(t *testing.T) {
 	producer := newIntProducer(0)
 	worker := Worker[int, int]{Work: func(i *int) (*int, error) { return i, nil }}
-	collector := newDefaultTestBufferedCollector(func(items []*int) error { return nil }, 1)
+	bufferSize := 1
+	collector := NewBufferedCollector(func(items []*int) error { return nil }, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 
@@ -79,13 +46,10 @@ func TestNewDispatcher_Defaults(t *testing.T) {
 		t.Errorf("Expected logger to be non-nil, got nil")
 	}
 	// Default channelBuffer logic: Collector.BufferSize (1) / NumCPU. Can be 0.
-	expectedChanBuffer := 1 / runtime.NumCPU()
-	if collector.BufferSize < runtime.NumCPU() && collector.BufferSize > 0 { // if buffer size is less than numCPU, chan buffer becomes 0
-		// This is because integer division Collector.BufferSize / numWorker will be 0
-		// For Collector.BufferSize = 1, and numWorker > 1, channelBuffer will be 0.
-		expectedChanBuffer = 0
-	} else if collector.BufferSize >= runtime.NumCPU() {
-		expectedChanBuffer = collector.BufferSize / runtime.NumCPU()
+	expectedChanBuffer := collector.BufferSize / disp.NumWorker // e.g., 1 / runtime.NumCPU()
+	if disp.channelBuffer != expectedChanBuffer {
+		t.Errorf("Expected channelBuffer to be %d (Collector.BufferSize %d / NumWorker %d), got %d",
+			expectedChanBuffer, collector.BufferSize, disp.NumWorker, disp.channelBuffer)
 	}
 
 	if disp.channelBuffer != expectedChanBuffer {
@@ -97,7 +61,8 @@ func TestNewDispatcher_Defaults(t *testing.T) {
 func TestNewDispatcher_CustomNumWorker(t *testing.T) {
 	producer := newIntProducer(0)
 	worker := Worker[int, int]{Work: func(i *int) (*int, error) { return i, nil }}
-	collector := newDefaultTestBufferedCollector(func(items []*int) error { return nil }, 10)
+	bufferSize := 10
+	collector := NewBufferedCollector(func(items []*int) error { return nil }, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	customWorkers := 4
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{NumWorker: &customWorkers})
@@ -121,7 +86,8 @@ func TestNewDispatcher_CustomNumWorker(t *testing.T) {
 func TestNewDispatcher_CustomRateLimit(t *testing.T) {
 	producer := newIntProducer(0)
 	worker := Worker[int, int]{Work: func(i *int) (*int, error) { return i, nil }}
-	collector := newDefaultTestBufferedCollector(func(items []*int) error { return nil }, 1)
+	bufferSize := 1
+	collector := NewBufferedCollector(func(items []*int) error { return nil }, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	customRateLimit := time.Millisecond * 100
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{RateLimit: &customRateLimit})
@@ -139,7 +105,8 @@ func TestNewDispatcher_CustomRateLimit(t *testing.T) {
 func TestNewDispatcher_CustomLogger(t *testing.T) {
 	producer := newIntProducer(0)
 	worker := Worker[int, int]{Work: func(i *int) (*int, error) { return i, nil }}
-	collector := newDefaultTestBufferedCollector(func(items []*int) error { return nil }, 1)
+	bufferSize := 1
+	collector := NewBufferedCollector(func(items []*int) error { return nil }, BufferedCollectorConfig{BufferSize: &bufferSize})
 	customLogger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{Logger: customLogger})
@@ -168,7 +135,8 @@ func TestNewDispatcher_ChannelBufferCalculation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			collector := newDefaultTestBufferedCollector(func(items []*int) error { return nil }, tt.collectorBufferSize)
+			bufferSize := tt.collectorBufferSize
+			collector := NewBufferedCollector(func(items []*int) error { return nil }, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 			// Ensure collector.BufferSize is set as expected by NewBufferedCollector
 			if tt.collectorBufferSize == math.MaxInt {
@@ -196,20 +164,19 @@ func TestNewDispatcher_ChannelBufferCalculation(t *testing.T) {
 				actualNumWorker = *config.NumWorker
 			}
 
-			// Recalculate expected based on actual logic if MaxInt involved
-			cbs := collector.BufferSize
-			if cbs == math.MaxInt {
-				cbs = 100
+			// In TestNewDispatcher_ChannelBufferCalculation's t.Run
+			cbsForCalc := collector.BufferSize // This is the BufferSize from the collector passed to NewDispatcher
+			if cbsForCalc == math.MaxInt {
+				cbsForCalc = 100 // This matches NewDispatcher's logic
 			}
-			expectedBuf := cbs / actualNumWorker
-			if cbs > 0 && actualNumWorker > 0 && cbs < actualNumWorker { // handle integer division for 0
-				expectedBuf = 0
-			}
+			// actualNumWorker is already correctly determined in your test.
+			expectedBuf := cbsForCalc / actualNumWorker // Integer division directly gives the right result.
 
 			if disp.channelBuffer != expectedBuf {
-				t.Errorf("Expected channelBuffer %d (collectorBS: %d, internalCBS: %d, numWorker: %d), got %d",
-					expectedBuf, collector.BufferSize, cbs, actualNumWorker, disp.channelBuffer)
+				t.Errorf("Test '%s': Expected channelBuffer %d (collector.BufferSize: %d, usedForCalc: %d, actualNumWorker: %d), got %d",
+					tt.name, expectedBuf, collector.BufferSize, cbsForCalc, actualNumWorker, disp.channelBuffer)
 			}
+
 		})
 	}
 }
@@ -233,13 +200,14 @@ func TestDispatch_Success_NoRateLimit(t *testing.T) {
 	var mu sync.Mutex
 	var collectCallCount atomic.Int32
 
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 10
+	collector := NewBufferedCollector(func(items []*int) error {
 		mu.Lock()
 		defer mu.Unlock()
 		collectCallCount.Add(1)
 		collectedItems = append(collectedItems, items...)
 		return nil
-	}, 10) // Buffer size 10
+	}, BufferedCollectorConfig{BufferSize: &bufferSize}) // Buffer size 10
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 	errs := disp.Dispatch()
@@ -282,12 +250,12 @@ func TestDispatch_Success_WithRateLimit(t *testing.T) {
 
 	var collectedItems []*int
 	var mu sync.Mutex
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	collector := NewBufferedCollector(func(items []*int) error {
 		mu.Lock()
 		collectedItems = append(collectedItems, items...)
 		mu.Unlock()
 		return nil
-	}, numItems) // Collect all at once
+	}, BufferedCollectorConfig{BufferSize: &numItems}) // Collect all at once
 
 	numWorkers := 2
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{
@@ -338,12 +306,13 @@ func TestDispatch_WorkerError(t *testing.T) {
 
 	var collectedItems []*int
 	var mu sync.Mutex
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 3
+	collector := NewBufferedCollector(func(items []*int) error {
 		mu.Lock()
 		collectedItems = append(collectedItems, items...)
 		mu.Unlock()
 		return nil
-	}, 5)
+	}, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 	errs := disp.Dispatch()
@@ -381,10 +350,11 @@ func TestDispatch_CollectorError(t *testing.T) {
 
 	worker := Worker[int, int]{Work: func(item *int) (*int, error) { res := *item; return &res, nil }}
 
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 2
+	collector := NewBufferedCollector(func(items []*int) error {
 		// Fail on the first call to Collect
 		return collectorErr
-	}, 2) // Buffer size 2, so Collect will be called
+	}, BufferedCollectorConfig{BufferSize: &bufferSize}) // Buffer size 2, so Collect will be called
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 	errs := disp.Dispatch()
@@ -413,12 +383,13 @@ func TestDispatch_EmptyProducer(t *testing.T) {
 	}
 
 	var collectCalled atomic.Bool
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 5
+	collector := NewBufferedCollector(func(items []*int) error {
 		if len(items) > 0 { // Collect might be called with an empty slice if buffer isn't hit then channel closes
 			collectCalled.Store(true)
 		}
 		return nil
-	}, 5)
+	}, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 	errs := disp.Dispatch()
@@ -462,30 +433,16 @@ func TestDispatch_CollectorBuffering(t *testing.T) {
 			var mu sync.Mutex
 			var collectCallCount atomic.Int32
 
-			collector := newDefaultTestBufferedCollector(func(items []*int) error {
+			collector := NewBufferedCollector(func(items []*int) error {
 				mu.Lock()
 				defer mu.Unlock()
 				// only count if items are present, as final collect might be empty if no items were ever sent
 				if len(items) > 0 {
 					collectCallCount.Add(1)
-				} else if tt.numItems == 0 && len(items) == 0 {
-					// Special case for zero items, collect might be called with empty buffer.
-					// The logic in BufferedCollector.Run calls Collect if len(buffer) > 0
-					// If producer is empty, out channel closes, buffer is empty, Collect is not called.
-					// So, for tt.numItems == 0, expectedCollectCalls should be 0.
-					tt.expectedCollectCalls = 0
 				}
 				collectedItems = append(collectedItems, items...)
 				return nil
-			}, tt.bufferSize)
-
-			if tt.numItems == 0 && tt.expectedCollectCalls != 0 {
-				// For empty producer, the Collect func inside BufferedCollector should not be called with non-empty items.
-				// The test setup implies collectCallCount is incremented only if items are present.
-				// BufferedCollector's Run: if len(buffer) > 0 { w.Collect(buffer) }
-				// If no items ever arrive on `in` for collector, buffer remains empty.
-				tt.expectedCollectCalls = 0
-			}
+			}, BufferedCollectorConfig{BufferSize: &tt.bufferSize})
 
 			disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 			errs := disp.Dispatch()
@@ -501,10 +458,8 @@ func TestDispatch_CollectorBuffering(t *testing.T) {
 			mu.Unlock()
 
 			actualCollectCalls := collectCallCount.Load()
-			if tt.numItems == 0 { // If no items, collect is not called by BufferedCollector.
-				if actualCollectCalls != 0 {
-					t.Errorf("Test '%s': Expected 0 collect calls for 0 items, got %d", tt.name, actualCollectCalls)
-				}
+			if tt.numItems == 0 && actualCollectCalls != 0 { // If no items, collect is not called by BufferedCollector.
+				t.Errorf("Test '%s': Expected 0 collect calls for 0 items, got %d", tt.name, actualCollectCalls)
 			} else if actualCollectCalls != tt.expectedCollectCalls {
 				t.Errorf("Test '%s': Expected %d collect calls, got %d (numItems: %d, bufferSize: %d)",
 					tt.name, tt.expectedCollectCalls, actualCollectCalls, tt.numItems, tt.bufferSize)
@@ -517,10 +472,6 @@ func TestDispatch_MultipleWorkers(t *testing.T) {
 	numItems := 20
 	numWorkers := 4
 	producer := newIntProducer(numItems)
-
-	// var itemsProcessedByWorker sync.Map // Store item: workerID
-	// var workerJobCount sync.Map         // workerID: count
-	// var workerIDCounter int32
 
 	worker := Worker[int, int]{
 		Work: func(item *int) (*int, error) {
@@ -538,12 +489,13 @@ func TestDispatch_MultipleWorkers(t *testing.T) {
 
 	var collectedItems []*int
 	var mu sync.Mutex
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 5
+	collector := NewBufferedCollector(func(items []*int) error {
 		mu.Lock()
 		collectedItems = append(collectedItems, items...)
 		mu.Unlock()
 		return nil
-	}, 5)
+	}, BufferedCollectorConfig{BufferSize: &bufferSize})
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{NumWorker: &numWorkers})
 	errs := disp.Dispatch()
@@ -585,7 +537,8 @@ func TestDispatch_AllComponentsError(t *testing.T) {
 
 	var successfulItemsForCollector [][]*int
 	var mu sync.Mutex
-	collector := newDefaultTestBufferedCollector(func(items []*int) error {
+	bufferSize := 2
+	collector := NewBufferedCollector(func(items []*int) error {
 		mu.Lock()
 		// Copy items as the slice might be reused by BufferedCollector
 		currentBatch := make([]*int, len(items))
@@ -603,7 +556,7 @@ func TestDispatch_AllComponentsError(t *testing.T) {
 			}
 		}
 		return nil
-	}, 2) // Buffer size 2
+	}, BufferedCollectorConfig{BufferSize: &bufferSize}) // Buffer size 2
 
 	disp := NewDispatcher(worker, producer, *collector, DispatcherConfig{})
 	errsSlice := disp.Dispatch()
